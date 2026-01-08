@@ -10,12 +10,12 @@ class Config:
     seed: int = 42
     run_dir: str = "/workspace/competition_xai/runs"
     datasets_path: str = "/workspace/competition_xai/datasets"
-    train_dataset: str = "KoDF"
+    train_dataset: str = "RVF"  #  KoDF | RVF | TIMIT
     model_name: str = "xception"
     input_modality: str = "rgb"  # rgb | wavelet | frequency | residual | npr
-    mode: str = "evidence_harvesting"  # train | test | evidence_harvesting | llm_debate
+    mode: str = "train"  # train | test | evidence_harvesting | llm_debate
     harvest_mode: str = "gradcam"  # gradcam | llm
-    test_mode: str = "ood"  # id | ood
+    test_mode: str = "id"  # id | ood
     early_stopping_patience: int = 5
     early_stopping_delta: float = 1e-6
     ckpt_path: str | None = (

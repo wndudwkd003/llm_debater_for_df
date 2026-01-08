@@ -6,6 +6,8 @@ from worker.llm import LLMDebater
 
 from utils.seed_utils import set_seeds
 from worker.analysis import Analyzer
+import os
+import json
 
 
 def get_in_channels(im: str) -> int:
@@ -13,6 +15,16 @@ def get_in_channels(im: str) -> int:
         return 3
     else:
         return 1
+
+
+def api_register(config: Config):
+    key_json_path = config.key_json_path
+
+    with open(key_json_path, "r") as f:
+        keys = json.load(f)
+
+    for k, v in keys.items():
+        os.environ[k] = v
 
 
 def main(config: Config):
@@ -55,4 +67,5 @@ def main(config: Config):
 if __name__ == "__main__":
     config = Config()
     set_seeds(config.seed)
+    api_register(config)
     main(config)
