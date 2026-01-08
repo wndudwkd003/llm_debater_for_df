@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
+import datasets
 import numpy as np
 from PIL import Image
 
@@ -110,9 +111,56 @@ def _make_dataset(
     )
 
 
-# =========================================================
-# Public API: loaders per split
-# =========================================================
+def get_evidence_harvesting_dataset(config: Config):
+    datasets_root = Path(config.datasets_path)
+
+    # 먼저 ID
+    id_ds = _make_dataset(datasets_root, config.train_dataset, "train", config)
+
+    # 그 다음 OOD
+    all_names = _list_dataset_names(datasets_root)
+    ood_names = [n for n in all_names if n != config.train_dataset]
+    ood_parts = [_make_dataset(datasets_root, n, "train", config) for n in ood_names]
+    ood_ds = ConcatDataset(ood_parts)
+
+    return DataLoader(
+        id_ds,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=config.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    ), DataLoader(
+        ood_ds,
+        batch_size=config.batch_size,
+        shuffle=True,
+        num_workers=config.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )
+
+
+def get_debate_dataset(config: Config):
+    # 이거는 최종 토론을 통한 테스트 단계에서 사용하는 데이터 세트임
+    # 이걸로 최종 평가하는 것
+
+    datasets_root = Path(config.datasets_path)
+
+    # all dataset test splits
+    all_names = _list_dataset_names(datasets_root)
+    parts = [_make_dataset(datasets_root, n, "test", config) for n in all_names]
+    debate_ds = ConcatDataset(parts)
+
+    return DataLoader(
+        debate_ds,
+        batch_size=config.batch_size,
+        shuffle=False,
+        num_workers=config.num_workers,
+        pin_memory=False,
+        drop_last=False,
+    )
+
+
 def get_train_loader(config: Config) -> DataLoader:
     datasets_root = Path(config.datasets_path)
     train_ds = _make_dataset(datasets_root, config.train_dataset, "train", config)

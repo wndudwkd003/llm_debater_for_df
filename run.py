@@ -36,7 +36,12 @@ def main(config: Config):
 
     elif config.mode == "evidence_harvesting":
         debater = LLMDebater(config)
-        results = debater.harvest_evidence()
+        if config.harvest_mode == "gradcam":
+            results = debater.harvest_evidence()
+
+        elif config.harvest_mode == "llm":
+            results = debater.call_llm_on_saved_evidence()
+
         Analyzer(config, results).evidence_harvesting_generate_reports()
 
     elif config.mode == "llm_debate":
