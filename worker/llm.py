@@ -12,12 +12,27 @@ from tqdm.auto import tqdm
 
 from PIL import Image
 import matplotlib.cm as cm
-
+import os
 from config.config import Config
 from core.builder import ModelBuilder
 from core.gradcam import GradCAM, find_last_conv2d
 from utils.data_utils import get_debate_dataset, get_evidence_harvesting_dataset
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+
+from utils.llm_utils import openai_vision_explain, clip_embed_image
+from utils.db_utils import connect, upsert_sample, insert_explanation
+
+
+def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
+    rows = []
+    if not path.exists():
+        return rows
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
 
 
 def write_json(path: Path, obj: Dict[str, Any]):
@@ -299,7 +314,108 @@ class LLMDebater:
         return summary
 
     def call_llm_on_saved_evidence(self) -> Dict[str, Any]:
-        raise NotImplementedError("LLM calling pipeline is not implemented yet.")
+        """
+        harvest_evidence 이후 생성된 topk_* + 저장된 이미지(원본/gradcam)를 사용해
+        GPT 설명 생성 + 임베딩 생성 + SQLite 저장
+        """
+        # 어떤 모델을 쓸지(문서상 확실한 ID만 사용 권장)
+        llm_model = getattr(self.config, "llm_model", "gpt-5.1")
+        emb_model = getattr(self.config, "emb_model", "text-embedding-3-small")
+
+        summary_path = self.evidence_root / "summary.json"
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+        db_path = self.evidence_root / "evidence.sqlite3"
+        conn = connect(db_path)
+
+        total = 0
+        saved = 0
+
+        for mode in ("id", "ood"):
+            mode_entry = summary.get(mode, {})
+            for dataset_name, info in mode_entry.items():
+                out_dir = Path(info["out_dir"])
+                split = "train"  # 지금 구조상 train만 harvest
+
+                # topk 파일들 로드
+                rows = []
+                rows += _read_jsonl(out_dir / "topk_correct.jsonl")
+                rows += _read_jsonl(out_dir / "topk_wrong.jsonl")
+
+                for r in rows:
+                    total += 1
+
+                    img_path = Path(r.get("saved_image", ""))
+                    cam_path = Path(r.get("saved_gradcam", ""))
+                    if not img_path.exists() or not cam_path.exists():
+                        continue
+
+                    # 1) 이미지 임베딩 먼저 만든다 (upsert 전에!)
+                    img_emb, img_emb_dim = clip_embed_image(
+                        image_path=img_path,
+                        model_name=getattr(self.config, "img_emb_model", "ViT-B-32"),
+                        pretrained=getattr(self.config, "img_emb_pretrained", "openai"),
+                        device="cpu",
+                    )
+
+                    # 2) DB: sample upsert (여기서 img_emb 사용)
+                    sample_id = upsert_sample(
+                        conn=conn,
+                        modality=self.config.input_modality,
+                        mode=mode,
+                        dataset=dataset_name,
+                        split=split,
+                        record=r,
+                        image_embedding=img_emb,
+                        image_emb_dim=img_emb_dim,
+                        image_emb_model=f"{getattr(self.config,'img_emb_model','ViT-B-32')}:{getattr(self.config,'img_emb_pretrained','openai')}",
+                    )
+
+                    # 3) LLM 프롬프트/호출
+                    correct_str = "correct" if bool(r["correct"]) else "incorrect"
+                    prompt = (
+                        f"The model ({self.config.input_modality}) predicted y_pred={r['y_pred']} "
+                        f"while the true label is y_true={r['y_true']} ({correct_str}).\n"
+                        f"Given the original image and its Grad-CAM overlay, explain:\n"
+                        f"1) what region the model focused on (short phrase),\n"
+                        f"2) why that region could lead to this prediction,\n"
+                        f"3) if incorrect, what evidence suggests the opposite.\n\n"
+                        f"Return 3 bullet points only."
+                    )
+
+                    resp = openai_vision_explain(
+                        prompt=prompt,
+                        image_paths=[img_path, cam_path],
+                        model=llm_model,
+                        api_key=os.environ.get("openai_api_key")
+                        or os.environ.get("OPENAI_API_KEY"),
+                        max_output_tokens=250,
+                    )
+
+                    print(f"[llm.py] Sample ID {sample_id} LLM response:\n{resp}\n")
+
+                    # 4) explanation 저장 (임베딩은 sample에 이미 들어갔다고 가정)
+                    insert_explanation(
+                        conn=conn,
+                        sample_id=sample_id,
+                        llm_model=llm_model,
+                        prompt=prompt,
+                        response=resp,
+                    )
+                    saved += 1
+
+        result = {
+            "mode": "evidence_harvesting_llm",
+            "run_dir": str(self.run_dir),
+            "evidence_root": str(self.evidence_root),
+            "db_path": str(db_path),
+            "llm_model": llm_model,
+            "emb_model": emb_model,
+            "total_candidates": int(total),
+            "saved_rows": int(saved),
+        }
+        write_json(self.evidence_root / "llm_summary.json", result)
+        return result
 
     def llm_debate(self) -> Dict[str, Any]:
         # test용 debate loader는 여기서 사용 예정

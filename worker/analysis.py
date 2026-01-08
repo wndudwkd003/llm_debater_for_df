@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
@@ -102,7 +102,59 @@ class Analyzer:
             only_wrong=True,
         )
 
+        if datasets is not None:
+            self.save_test_results_by_dataset(preds)
+
         print(f"[analysis.py] Test reports saved to: {self.out_dir}")
+
+    def save_test_results_by_dataset(self, preds: Dict[str, Any]):
+        datasets = preds.get("datasets", None)
+        if datasets is None:
+            return
+
+        y_true = preds["y_true"]
+        y_pred = preds["y_pred"]
+        y_prob = preds["y_prob"]
+        paths = preds["paths"]
+
+        root = self.out_dir.parent / "test_datasets"
+        root.mkdir(parents=True, exist_ok=True)
+
+        # 등장 순서 유지하면서 유니크 dataset 목록 만들기
+        seen = set()
+        uniq = []
+        for d in datasets:
+            if d not in seen:
+                seen.add(d)
+                uniq.append(d)
+
+        for ds in uniq:
+            idxs = [i for i, d in enumerate(datasets) if d == ds]
+            if len(idxs) == 0:
+                continue
+
+            out_dir = root / str(ds)
+            out_dir.mkdir(parents=True, exist_ok=True)
+
+            # subset preds 구성
+            sub_preds = {
+                "y_true": [y_true[i] for i in idxs],
+                "y_pred": [y_pred[i] for i in idxs],
+                "y_prob": [y_prob[i] for i in idxs],
+                "paths": [paths[i] for i in idxs],
+                "datasets": [datasets[i] for i in idxs],
+            }
+
+            # vis_matrix에서 읽기 쉽게 "run_dir"과 "test_mode"도 넣어줌
+            sub_results = {
+                "run_dir": str(self.run_dir),
+                "mode": "test",
+                "test_mode": self.config.test_mode,  # "id" or "ood"
+                "dataset": str(ds),
+                "preds": sub_preds,
+            }
+
+            self.save_json(sub_results, out_dir / "test_results.json")
 
     def evidence_harvesting_generate_reports(self):
         self.save_json(self.results, self.out_dir / "evidence_harvesting_results.json")
@@ -190,10 +242,11 @@ class Analyzer:
         conf = probs.max(axis=1)
         correct = y_true_np == y_pred_np
 
+        wrong = ~correct
         return {
-            "mean_conf_all": float(conf.mean()),
-            "mean_conf_correct": float(conf[correct].mean()),
-            "mean_conf_wrong": float(conf[~correct].mean()),
+            "mean_conf_all": float(conf.mean()) if conf.size > 0 else None,
+            "mean_conf_correct": float(conf[correct].mean()) if correct.any() else None,
+            "mean_conf_wrong": float(conf[wrong].mean()) if wrong.any() else None,
         }
 
     def compute_roc_auc(
@@ -310,8 +363,19 @@ class Analyzer:
             idxs = [i for i in idxs if int(y_true[i]) != int(y_pred[i])]
         idxs = idxs[:n]
 
-        rows = int(np.ceil(len(idxs) / cols))
+        if len(idxs) == 0:
+            # 빈 플롯 파일이라도 남기고 싶으면 주석 해제
+            fig = plt.figure(figsize=(4, 2))
+            plt.axis("off")
+            plt.title("No samples to display")
+            self.save_figure(fig, out_path)
+            return
+
+        cols = max(1, min(cols, len(idxs)))
+
+        rows = (len(idxs) + cols - 1) // cols  # ceil
         fig, axes = plt.subplots(rows, cols, figsize=(cols * 3.5, rows * 3.5))
+
         axes = np.array(axes).reshape(-1)
 
         for ax_i, ax in enumerate(axes):

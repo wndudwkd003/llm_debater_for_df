@@ -64,6 +64,13 @@ def main(config: Config):
     print(f"[run.py] Finished {config.mode}.")
 
 
+"""
+
+keys.json을 만드셨나요?
+
+"""
+
+
 if __name__ == "__main__":
     config = Config()
     set_seeds(config.seed)

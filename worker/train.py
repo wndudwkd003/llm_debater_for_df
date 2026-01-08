@@ -26,7 +26,7 @@ class Trainer:
         if config.mode == "train":
             run_dir = Path(self.config.run_dir)
             ts = get_current_timestamp()
-            mn = f"{self.config.model_name}_{self.config.input_modality}"
+            mn = f"{self.config.model_name}_{self.config.input_modality}_{self.config.train_dataset}"
             run_dir = run_dir / f"{ts}_{mn}"
             run_dir.mkdir(parents=True, exist_ok=True)
             self.run_dir = run_dir
