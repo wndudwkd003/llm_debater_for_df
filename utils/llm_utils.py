@@ -2,42 +2,16 @@
 
 import base64
 import os
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import requests
 
-
-from pathlib import Path
-from typing import List, Tuple
 import numpy as np
 import torch
 from PIL import Image
-
-# pip install open_clip_torch
 import open_clip
-
-
-@torch.no_grad()
-def clip_embed_image(
-    image_path: Path,
-    model_name: str = "ViT-L-14",
-    pretrained: str = "openai",
-    device: str = "cpu",
-) -> Tuple[List[float], int]:
-    model, _, preprocess = open_clip.create_model_and_transforms(
-        model_name, pretrained=pretrained
-    )
-    model = model.to(device).eval()
-
-    img = Image.open(image_path).convert("RGB")
-    x = preprocess(img).unsqueeze(0).to(device)
-
-    feat = model.encode_image(x)  # (1, D)
-    feat = feat / feat.norm(dim=-1, keepdim=True)
-    vec = feat.squeeze(0).detach().cpu().float().numpy().astype(np.float32)
-
-    return vec.tolist(), int(vec.shape[0])
 
 
 def image_to_data_url_png(path: Path) -> str:
@@ -46,9 +20,7 @@ def image_to_data_url_png(path: Path) -> str:
 
 
 def _extract_text_from_responses(resp_json: dict) -> str:
-    # Responses API는 output 구조가 변형될 수 있어서 최대한 안전하게 텍스트만 모읍니다.
     texts: List[str] = []
-
     out = resp_json.get("output", [])
     for item in out:
         for c in item.get("content", []):
@@ -56,14 +28,10 @@ def _extract_text_from_responses(resp_json: dict) -> str:
             if t in ("output_text", "text"):
                 if "text" in c and isinstance(c["text"], str):
                     texts.append(c["text"])
-
     if texts:
         return "\n".join(texts).strip()
-
-    # fallback
     if "text" in resp_json and isinstance(resp_json["text"], str):
         return resp_json["text"].strip()
-
     return ""
 
 
@@ -74,11 +42,8 @@ def openai_vision_explain(
     api_key: Optional[str] = None,
     max_output_tokens: int = 300,
     timeout: int = 120,
+    max_retries: int = 6,
 ) -> str:
-    """
-    Responses API로 (텍스트 + 이미지들) 입력 → 설명 텍스트 반환.
-    image_paths는 1~N개 가능(여기서는 원본+gradcam 2장 권장).
-    """
     api_key = (
         api_key or os.environ.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
     )
@@ -86,6 +51,9 @@ def openai_vision_explain(
 
     contents = [{"type": "input_text", "text": prompt}]
     for p in image_paths:
+        # 파일 존재/파일 여부를 강제 체크 (디렉토리 '.' 같은 실수를 즉시 잡음)
+        if not p.exists() or not p.is_file():
+            raise FileNotFoundError(f"Invalid image path: {p}")
         contents.append({"type": "input_image", "image_url": image_to_data_url_png(p)})
 
     payload = {
@@ -94,44 +62,53 @@ def openai_vision_explain(
         "max_output_tokens": int(max_output_tokens),
     }
 
-    r = requests.post(
-        "https://api.openai.com/v1/responses",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
-    r.raise_for_status()
-    return _extract_text_from_responses(r.json())
+    url = "https://api.openai.com/v1/responses"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
+    last_err = None
+    for attempt in range(max_retries):
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
 
-def openai_embed_text(
-    text: str,
-    model: str = "text-embedding-3-small",
-    api_key: Optional[str] = None,
-    timeout: int = 120,
-) -> Tuple[List[float], int]:
-    """
-    Embeddings API로 텍스트 임베딩 벡터(list[float])와 dim 반환.
-    """
-    api_key = (
-        api_key or os.environ.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
-    )
-    assert api_key, "Missing OpenAI API key (env: openai_api_key or OPENAI_API_KEY)."
+        if r.status_code == 200:
+            return _extract_text_from_responses(r.json())
 
-    payload = {"model": model, "input": text}
-    r = requests.post(
-        "https://api.openai.com/v1/embeddings",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
-    r.raise_for_status()
-    j = r.json()
-    emb = j["data"][0]["embedding"]
-    return emb, int(len(emb))
+        # 429/503은 재시도 대상 (문서도 backoff 권장) :contentReference[oaicite:1]{index=1}
+        if r.status_code in (429, 503):
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw_text": r.text}
+
+            retry_after = r.headers.get("Retry-After")
+            wait_s = None
+            if retry_after is not None:
+                try:
+                    wait_s = float(retry_after)
+                except Exception:
+                    wait_s = None
+
+            if wait_s is None:
+                # 지수 백오프(1,2,4,8,16...) + 상한
+                wait_s = float(min(60, 2**attempt))
+
+            print(
+                f"[openai_vision_explain] HTTP {r.status_code} attempt={attempt+1}/{max_retries}\n"
+                f"Headers Retry-After={retry_after}\n"
+                f"Body={body}\n"
+                f"Sleeping {wait_s:.1f}s then retry..."
+            )
+            time.sleep(wait_s)
+            last_err = (r.status_code, body)
+            continue
+
+        # 그 외는 즉시 실패(바디 출력)
+        try:
+            body = r.json()
+        except Exception:
+            body = {"raw_text": r.text}
+        raise RuntimeError(f"OpenAI API error HTTP {r.status_code}: {body}")
+
+    raise RuntimeError(f"OpenAI API error after retries: {last_err}")

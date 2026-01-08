@@ -19,8 +19,9 @@ from core.gradcam import GradCAM, find_last_conv2d
 from utils.data_utils import get_debate_dataset, get_evidence_harvesting_dataset
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
-from utils.llm_utils import openai_vision_explain, clip_embed_image
+from utils.llm_utils import openai_vision_explain
 from utils.db_utils import connect, upsert_sample, insert_explanation
+from utils.clip_utils import clip_embed_image
 
 
 def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
