@@ -21,7 +21,7 @@ import open_clip
 @torch.no_grad()
 def clip_embed_image(
     image_path: Path,
-    model_name: str = "ViT-B-32",
+    model_name: str = "ViT-L-14",
     pretrained: str = "openai",
     device: str = "cpu",
 ) -> Tuple[List[float], int]:

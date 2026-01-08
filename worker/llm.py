@@ -274,11 +274,12 @@ class LLMDebater:
                 topk_wrong = select_topk(ds_records, correct=False, k=topk)
                 selected = topk_correct + topk_wrong
 
+                # 먼저 이미지 저장 -> dict에 saved_image/saved_gradcam가 채워짐
+                self.save_images_with_gradcam(loader, out_dir, selected)
+
+                # 그 다음에 topk jsonl을 저장/덮어쓰기 (saved_* 포함)
                 write_jsonl(out_dir / "topk_correct.jsonl", topk_correct)
                 write_jsonl(out_dir / "topk_wrong.jsonl", topk_wrong)
-
-                # 선택 샘플에 대해서만 원본+gradcam 저장
-                self.save_images_with_gradcam(loader, out_dir, selected)
 
                 write_json(
                     out_dir / "summary.json",
