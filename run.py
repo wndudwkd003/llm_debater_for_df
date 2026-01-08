@@ -1,51 +1,50 @@
 # /workspace/competition_xai/run.py
 
-from dataclasses import dataclass, field
+from config.config import Config
+from worker.train import Trainer
+from worker.llm import LLMDebater
 
-from competition_xai.train import Trainer
-from competition_xai.llm import LLMDebater
-
-from competition_xai.utils.seed_utils import set_seeds
-from competition_xai.analysis import Analyzer
+from utils.seed_utils import set_seeds
+from worker.analysis import Analyzer
 
 
-@dataclass
-class Config:
-    seed: int = 42
-    run_dir: str = "/workspace/competition_xai/runs"
-    datasets_path: str = "/workspace/competition_xai/datasets"
-    train_dataset: str = "KoDF"
-    model_name: str = "xception"
-    input_modality: str = "rgb"  # rgb | wavelet | frequency | residual | npr
-    mode: str = "train"  # train | test | evidence_harvesting | llm_debate
-    test_mode: str = "ood"  # iod | ood
-    ckpt_path: str = ""
-    use_gradcam: bool = True
-    batch_size: int = 16
-    num_epochs: int = 10
-    lr: float = 1e-3
-    weight_decay: float = 1e-2
-    img_size: int = 224
-    num_workers: int = 0
-    device: str = "cuda"
+def get_in_channels(im: str) -> int:
+    if im == "rgb":
+        return 3
+    else:
+        return 1
 
 
 def main(config: Config):
+    print(f"[run.py] Mode: {config.mode}")
+    print(config)
+    print("-" * 50)
+    print()
+
+    # 입력 채널 설정
+    config.in_channels = get_in_channels(config.input_modality)
+
     if config.mode == "train":
-        results = Trainer(config).train()
+        trainer = Trainer(config)
+        results = trainer.train()
         Analyzer(config, results).train_generate_reports()
 
     elif config.mode == "test":
-        results = Trainer(config).test()
+        trainer = Trainer(config)
+        results = trainer.test()
         Analyzer(config, results).test_generate_reports()
 
     elif config.mode == "evidence_harvesting":
-        results = LLMDebater(config).harvest_evidence()
+        debater = LLMDebater(config)
+        results = debater.harvest_evidence()
         Analyzer(config, results).evidence_harvesting_generate_reports()
 
     elif config.mode == "llm_debate":
-        results = LLMDebater(config).llm_debate()
+        debater = LLMDebater(config)
+        results = debater.llm_debate()
         Analyzer(config, results).llm_debate_generate_reports()
+
+    print(f"[run.py] Finished {config.mode}.")
 
 
 if __name__ == "__main__":

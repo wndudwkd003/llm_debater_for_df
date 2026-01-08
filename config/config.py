@@ -1,0 +1,32 @@
+# /workspace/competition_xai/config/config.py
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Config:
+    seed: int = 42
+    run_dir: str = "/workspace/competition_xai/runs"
+    datasets_path: str = "/workspace/competition_xai/datasets"
+    train_dataset: str = "KoDF"
+    model_name: str = "xception"
+    input_modality: str = "rgb"  # rgb | wavelet | frequency | residual | npr
+    mode: str = "train"  # train | test | evidence_harvesting | llm_debate
+    test_mode: str = "ood"  # id | ood
+    early_stopping_patience: int = 5
+    early_stopping_delta: float = 1e-6
+    ckpt_path: str | None = ""
+    use_gradcam: bool = True
+    batch_size: int = 16
+    num_epochs: int = 10
+    lr: float = 1e-3
+    weight_decay: float = 1e-2
+    img_size: int = 224
+    num_workers: int = 0
+    device: str = "cuda"
+
+    pretrained: bool = True
+    in_channels: int = 3
+    num_classes: int = 2
+    drop_rate: float = 0.0
+    global_pool: str = "avg"
