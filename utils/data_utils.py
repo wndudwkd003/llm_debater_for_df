@@ -60,6 +60,7 @@ class JsonlImageDataset(Dataset):
         img_size: int,
         input_modality: str,
         dataset_name: str,
+        debug_mode: bool = False,
     ):
         self.dataset_dir = dataset_dir
         self.jsonl_path = jsonl_path
@@ -67,8 +68,11 @@ class JsonlImageDataset(Dataset):
         self.input_modality = input_modality
         self.dataset_name = dataset_name
         self.rows = read_jsonl(jsonl_path)
+        self.debug_mode = debug_mode
 
     def __len__(self) -> int:
+        if self.debug_mode:
+            return min(200, len(self.rows))
         return len(self.rows)
 
     def __getitem__(self, idx: int):
@@ -77,7 +81,12 @@ class JsonlImageDataset(Dataset):
         y = int(r["label"])
         x = _load_image_as_tensor(img_path, self.img_size, self.input_modality)
 
-        return x, y
+        meta = {
+            "path": str(img_path),
+            "dataset": self.dataset_name,
+            "index": int(idx),
+        }
+        return x, y, meta
 
 
 def _list_dataset_names(datasets_root: Path) -> List[str]:
@@ -97,6 +106,7 @@ def _make_dataset(
         img_size=config.img_size,
         input_modality=config.input_modality,
         dataset_name=name,
+        debug_mode=config.DEBUG_MODE,
     )
 
 
@@ -141,7 +151,7 @@ def get_test_loader(config: Config):
         all_names = _list_dataset_names(datasets_root)
         ood_names = [n for n in all_names if n != config.train_dataset]
         parts = [_make_dataset(datasets_root, n, "test", config) for n in ood_names]
-        test_ds = ConcatDataset(parts) if len(parts) > 0 else None
+        test_ds = ConcatDataset(parts)
 
     else:
         raise ValueError(f"Unknown test_mode: {config.test_mode}")

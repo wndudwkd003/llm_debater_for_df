@@ -6,3 +6,9 @@ class LLMDebater:
         self,
     ):
         pass
+
+    def harvest_evidence(self):
+        pass
+
+    def llm_debate(self):
+        pass

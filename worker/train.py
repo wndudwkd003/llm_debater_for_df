@@ -23,22 +23,33 @@ class Trainer:
         self.config = config
         self.device = torch.device(config.device)
 
-        run_dir = Path(self.config.run_dir)
-        ts = get_current_timestamp()
-        mn = f"{self.config.model_name}_{self.config.input_modality}"
-        run_dir /= f"{ts}_{mn}"
-        run_dir.mkdir(parents=True, exist_ok=True)
+        if config.mode == "train":
+            run_dir = Path(self.config.run_dir)
+            ts = get_current_timestamp()
+            mn = f"{self.config.model_name}_{self.config.input_modality}"
+            run_dir = run_dir / f"{ts}_{mn}"
+            run_dir.mkdir(parents=True, exist_ok=True)
+            self.run_dir = run_dir
+            self.best_ckpt_path = self.run_dir / "best.pt"
+        else:
+            # test/evidence/llm_debate 등은 기존 run 폴더 재사용
+            run_dir = Path(self.config.ckpt_path)
+            if run_dir.suffix == ".pt":
+                run_dir = run_dir.parent
+            self.run_dir = run_dir
 
-        self.run_dir = run_dir
+            self.best_ckpt_path = run_dir / "best.pt"
+            self.config.ckpt_path = str(self.best_ckpt_path)
+            print(f"[train.py] best checkpoint path: {self.best_ckpt_path}")
+
         print(f"[train.py] Run directory created at: {run_dir}")
+        print()
         self.best_loss = float("inf")
         self.best_epoch = -1
         self.no_improve_epochs = 0
 
         self.es_patience = config.early_stopping_patience
         self.es_delta = config.early_stopping_delta
-
-        self.best_ckpt_path = self.run_dir / "best.pt"
 
         self.model: nn.Module = None
         self.train_loader: DataLoader = None
@@ -121,7 +132,7 @@ class Trainer:
 
         with context:
             for batch in pbar:
-                inputs, targets = batch
+                inputs, targets, _ = batch
                 inputs = inputs.to(self.device, non_blocking=True)
                 targets = targets.to(self.device, non_blocking=True)
 
@@ -222,9 +233,13 @@ class Trainer:
         y_true = []
         y_pred = []
         y_prob = []
+        paths = []
+        datasets = []
+        indices = []
 
+        print()
         for batch in tqdm(loader, desc="[TEST]"):
-            inputs, targets = batch
+            inputs, targets, meta = batch
             inputs = inputs.to(self.device, non_blocking=True)
             targets = targets.to(self.device, non_blocking=True)
 
@@ -242,6 +257,9 @@ class Trainer:
             y_true.extend(targets.detach().cpu().tolist())
             y_pred.extend(preds.detach().cpu().tolist())
             y_prob.extend(probs.detach().cpu().tolist())
+            paths.extend(meta["path"])
+            datasets.extend(meta["dataset"])
+            indices.extend(meta["index"].tolist())
 
         avg_loss = total_loss / max(total_count, 1)
         avg_acc = total_correct / max(total_count, 1)
@@ -253,6 +271,9 @@ class Trainer:
             "y_pred": y_pred,
             "y_prob": y_prob,
             "count": int(total_count),
+            "paths": paths,
+            "datasets": datasets,
+            "indices": indices,
         }
 
     def test(self):
@@ -260,7 +281,6 @@ class Trainer:
         self.model.to(self.device)
 
         self.test_loader = get_test_loader(self.config)
-
         test_eval = self.evaluate_loader(self.test_loader)
 
         return {
@@ -277,5 +297,8 @@ class Trainer:
                 "y_true": test_eval["y_true"],
                 "y_pred": test_eval["y_pred"],
                 "y_prob": test_eval["y_prob"],
+                "paths": test_eval["paths"],
+                "datasets": test_eval["datasets"],
+                "indices": test_eval["indices"],
             },
         }

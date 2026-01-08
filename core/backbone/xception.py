@@ -16,7 +16,7 @@ def build_model(cfg: Config) -> nn.Module:
         global_pool=cfg.global_pool,
     )
 
-    if cfg.ckpt_path is not None and cfg.ckpt_path != "":
+    if cfg.ckpt_path is not None and cfg.ckpt_path != "" and cfg.mode != "train":
         state_dict = torch.load(cfg.ckpt_path, map_location="cpu")
         model.load_state_dict(state_dict, strict=True)
 

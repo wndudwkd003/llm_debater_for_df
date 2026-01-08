@@ -5,17 +5,21 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
+    DEBUG_MODE: bool = True
+
     seed: int = 42
     run_dir: str = "/workspace/competition_xai/runs"
     datasets_path: str = "/workspace/competition_xai/datasets"
     train_dataset: str = "KoDF"
     model_name: str = "xception"
     input_modality: str = "rgb"  # rgb | wavelet | frequency | residual | npr
-    mode: str = "train"  # train | test | evidence_harvesting | llm_debate
-    test_mode: str = "ood"  # id | ood
+    mode: str = "test"  # train | test | evidence_harvesting | llm_debate
+    test_mode: str = "id"  # id | ood
     early_stopping_patience: int = 5
     early_stopping_delta: float = 1e-6
-    ckpt_path: str | None = ""
+    ckpt_path: str | None = (
+        "/workspace/competition_xai/runs/20260108_091704_xception_rgb"
+    )
     use_gradcam: bool = True
     batch_size: int = 16
     num_epochs: int = 10
