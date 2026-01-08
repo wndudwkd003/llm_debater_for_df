@@ -5,7 +5,9 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Config:
-    DEBUG_MODE: bool = False
+    DEBUG_MODE: bool = (
+        False  # 데이터 샘플 몇 개만 쓰고 싶을 때 True로 설정 True | False
+    )
 
     seed: int = 42
     run_dir: str = "/workspace/competition_xai/runs"
@@ -14,7 +16,7 @@ class Config:
     model_name: str = "xception"
     input_modality: str = "rgb"  # rgb | wavelet | frequency | residual | npr
     mode: str = "evidence_harvesting"  # train | test | evidence_harvesting | llm_debate
-    harvest_mode: str = "gradcam"  # gradcam | llm
+    harvest_mode: str = "llm"  # gradcam | llm
     test_mode: str = "id"  # id | ood
     early_stopping_patience: int = 5
     early_stopping_delta: float = 1e-6
@@ -22,8 +24,8 @@ class Config:
         "/workspace/competition_xai/runs/20260108_114358_xception_rgb_KoDF"
     )
     use_gradcam: bool = True
-    batch_size: int = 16
-    num_epochs: int = 5
+    batch_size: int = 32
+    num_epochs: int = 5  # 과적합 방지로 5 에폭으로 설정
     lr: float = 1e-3
     weight_decay: float = 1e-2
     img_size: int = 224

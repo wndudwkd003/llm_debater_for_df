@@ -352,14 +352,19 @@ class LLMDebater:
                         continue
 
                     # 1) 이미지 임베딩 먼저 만든다 (upsert 전에!)
+                    img_emb_model = getattr(self.config, "img_emb_model", "ViT-L-14")
+                    img_emb_pretrained = getattr(
+                        self.config, "img_emb_pretrained", "openai"
+                    )
+
                     img_emb, img_emb_dim = clip_embed_image(
                         image_path=img_path,
-                        model_name=getattr(self.config, "img_emb_model", "ViT-B-32"),
-                        pretrained=getattr(self.config, "img_emb_pretrained", "openai"),
+                        model_name=img_emb_model,
+                        pretrained=img_emb_pretrained,
                         device="cpu",
                     )
 
-                    # 2) DB: sample upsert (여기서 img_emb 사용)
+                    # 2) DB: sample upsert (여기서 img_emb 저장)
                     sample_id = upsert_sample(
                         conn=conn,
                         modality=self.config.input_modality,
@@ -369,7 +374,7 @@ class LLMDebater:
                         record=r,
                         image_embedding=img_emb,
                         image_emb_dim=img_emb_dim,
-                        image_emb_model=f"{getattr(self.config,'img_emb_model','ViT-B-32')}:{getattr(self.config,'img_emb_pretrained','openai')}",
+                        image_emb_model=f"{img_emb_model}:{img_emb_pretrained}",
                     )
 
                     # 3) LLM 프롬프트/호출
